@@ -1,0 +1,69 @@
+
+name: ExplorerWatcher CE ARM Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: ghcr.io/enlyze/windows-ce-build-environment-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch Windows CE source
+        shell: bash
+        run: |
+          set -eu
+
+          FILE="ExplorerWatcher/src/main.cpp"
+
+          test -f "$FILE"
+
+          # Replace unsupported CreateFont with CreateFontIndirect
+          sed -i '/return CreateFont(/c\
+            LOGFONT lf = {0};\
+            lf.lfHeight = -h;\
+            lf.lfWeight = w;\
+            lf.lfCharSet = DEFAULT_CHARSET;\
+            lstrcpy(lf.lfFaceName, TEXT("Tahoma"));\
+            return CreateFontIndirect(&lf);' "$FILE"
+
+          # Remove unavailable StretchBltMode calls
+          sed -i '/SetStretchBltMode[[:space:]]*(/d' "$FILE"
+
+          # Fix every PtInRect pointer argument
+          sed -i 's/,[[:space:]]*&p)/, p)/g' "$FILE"
+
+          echo "Source patches completed."
+
+      - name: Compile Windows CE EXE
+        shell: bash
+        run: |
+          set -eu
+
+          arm-mingw32ce-g++ \
+            -Os \
+            -s \
+            -DUNICODE \
+            -D_UNICODE \
+            -D_WIN32_WCE=0x500 \
+            ExplorerWatcher/src/main.cpp \
+            -o ExplorerWatcher.exe \
+            -lcoredll
+
+          test -s ExplorerWatcher.exe
+
+          echo "EXE BUILD SUCCESSFUL"
+          ls -lh ExplorerWatcher.exe
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: ExplorerWatcher-New-ARM-EXE
+          path: ExplorerWatcher.exe
+          if-no-files-found: error
